@@ -1,11 +1,12 @@
-import re
 from subprocess import run
-from typing import Dict, List, Tuple, Union
 
-from ..abstractionhelper import is_installed, is_wayland
-from ..credentials import Credentials
-from ..entry import Entry
-from ..models import Action, Keybinding, Target, Targets
+from rofi_rbw.models.entry import Entry
+
+from ..abstractionhelper import is_installed
+from ..models.action import Action
+from ..models.detailed_entry import DetailedEntry
+from ..models.keybinding import Keybinding
+from ..models.targets import Target
 from .selector import Selector
 
 
@@ -20,50 +21,38 @@ class Bemenu(Selector):
 
     def show_selection(
         self,
-        entries: List[Entry],
+        entries: list[Entry],
         prompt: str,
         show_help_message: bool,
         show_folders: bool,
-        keybindings: Dict[str, Tuple[Action, List[Target]]],
-        additional_args: List[str],
-    ) -> Tuple[Union[List[Target], None], Union[Action, None], Union[Entry, None]]:
+        keybindings: list[Keybinding],
+        additional_args: list[str],
+    ) -> tuple[None, Action | None, Entry | None]:
         parameters = ["bemenu", "-p", prompt, *additional_args]
 
         bemenu = run(
             parameters,
-            input="\n".join(self.__format_entries(entries, show_folders)),
+            input="\n".join(self._format_entries(entries, show_folders)),
             capture_output=True,
             encoding="utf-8",
         )
         if bemenu.returncode == 0:
-            return None, None, self.__parse_formatted_string(bemenu.stdout)
+            return None, None, self._find_entry(entries, bemenu.stdout)
         else:
             return None, Action.CANCEL, None
 
-    def __format_entries(self, entries: List[Entry], show_folders: bool) -> List[str]:
-        max_width = self._calculate_max_width(entries, show_folders)
-        return [
-            f"{self._format_folder(it, show_folders)}{it.name}{self.justify(it, max_width, show_folders)}  {it.username}"
-            for it in entries
-        ]
-
-    def __parse_formatted_string(self, formatted_string: str) -> Entry:
-        match = re.compile("(?:(?P<folder>.+)/)?(?P<name>.*?) *  (?P<username>.*)").search(formatted_string)
-
-        return Entry(match.group("name").strip(), match.group("folder"), match.group("username").strip())
-
     def select_target(
         self,
-        credentials: Credentials,
+        entry: DetailedEntry,
         show_help_message: bool,
-        keybindings: Dict[str, Action],
-        additional_args: List[str],
-    ) -> Tuple[Union[List[Target], None], Union[Action, None]]:
+        keybindings: dict[str, Action],
+        additional_args: list[str],
+    ) -> tuple[list[Target] | None, Action | None]:
         parameters = ["bemenu", "-p", "Choose target", *additional_args]
 
         bemenu = run(
             parameters,
-            input="\n".join(self._format_targets_from_credential(credentials)),
+            input="\n".join(self._format_targets_from_entry(entry)),
             capture_output=True,
             encoding="utf-8",
         )

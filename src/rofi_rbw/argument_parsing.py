@@ -4,8 +4,10 @@ import shlex
 import configargparse
 
 from . import __version__
-from .models import Action, Keybinding, Target, Targets, TypeTarget
-from .paths import *
+from .models.action import Action
+from .models.keybinding import Keybinding
+from .models.targets import Target, TypeTarget
+from .paths import config_file_locations
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -39,7 +41,7 @@ def parse_arguments() -> argparse.Namespace:
         dest="selector",
         action="store",
         type=str,
-        choices=["rofi", "wofi"],
+        choices=["rofi", "wofi", "fuzzel", "bemenu"],
         default=None,
         help="Choose the selector frontend",
     )
@@ -76,7 +78,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.set_defaults(show_folders=True)
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", help="Don't save history in cache")
     parser.set_defaults(use_cache=True)
-    parser.add_argument("--use-notify-send", dest="use_notify_send", action="store_true", help="Send desktop notification after copying TOTP")
+    parser.add_argument(
+        "--use-notify-send",
+        dest="use_notify_send",
+        action="store_true",
+        help="Send desktop notification after copying TOTP",
+    )
     parser.set_defaults(use_notify_send=False)
     parser.add_argument(
         "--keybindings",
@@ -113,6 +120,14 @@ def parse_arguments() -> argparse.Namespace:
         type=int,
         default=0,
         help="Set the delay between key presses when typing.",
+    )
+    parser.add_argument(
+        "--typing-start-delay",
+        dest="start_delay",
+        action="store",
+        type=float,
+        default=0,
+        help="Set the typing start delay.",
     )
 
     parsed_args = parser.parse_args()

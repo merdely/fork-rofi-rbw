@@ -1,64 +1,89 @@
 import json
 from json import JSONDecodeError
 from subprocess import run
-from typing import List, Optional
+from typing import Any
 
-from .credentials import Credentials, Field, FieldType
-from .entry import Entry
+from .models.card import Card
+from .models.credentials import Credentials
+from .models.detailed_entry import DetailedEntry
+from .models.entry import Entry
+from .models.EntryType import EntryType
+from .models.field import Field, FieldType
+from .models.note import Note
 
 
 class Rbw:
-    def list_entries(self) -> List[Entry]:
-        rbw = run(["rbw", "list", "--fields", "folder,name,user"], encoding="utf-8", capture_output=True)
+    def list_entries(self) -> list[Entry]:
+        rbw = run(["rbw", "list", "--raw"], encoding="utf-8", capture_output=True)
 
         if rbw.returncode != 0:
             print("There was a problem calling rbw. Is it correctly configured?")
             print(rbw.stderr)
             exit(2)
 
+        data = json.loads(rbw.stdout.strip())
+
         return sorted(
-            [self.__parse_rbw_output(it) for it in (rbw.stdout.strip("\n").split("\n"))],
+            [
+                Entry(item["name"], item["folder"] or "", item["user"] or "", item["type"])
+                for item in data
+                if item["type"] in {EntryType.LOGIN.value, EntryType.CARD.value, EntryType.NOTE.value}
+            ],
             key=lambda x: x.folder.lower() + x.name.lower(),
         )
 
-    def __parse_rbw_output(self, rbw_string: str) -> "Entry":
-        fields = rbw_string.split("\t")
+    def fetch_credentials(self, entry: Entry) -> DetailedEntry:
+        if entry.type == EntryType.LOGIN.value:
+            return self.__fetch_login(entry)
+        elif entry.type == EntryType.CARD.value:
+            return self.__fetch_card(entry)
+        elif entry.type == EntryType.NOTE.value:
+            return self.__fetch_note(entry)
+        else:
+            print(f"Unsupported type: {entry.type}")
+            exit(7)
 
-        try:
-            return Entry(fields[1], fields[0], fields[2] if len(fields) > 2 else "")
-        except IndexError:
-            raise Exception(f"Entry '{rbw_string}' cannot be parsed")
+    def __fetch_login(self, entry: Entry) -> Credentials:
+        data = self.__load_from_rbw(entry.name, entry.username, entry.folder)
 
-    def fetch_credentials(self, entry: Entry) -> "Credentials":
-        try:
-            data = json.loads(self.__load_from_rbw(entry.name, entry.username, entry.folder).strip())
+        return Credentials(
+            entry.name,
+            data["folder"],
+            [Field(item["name"], item["value"], FieldType(item["type"])) for item in data["fields"] if item["name"]],
+            entry.username,
+            data["data"]["password"] or "",
+            data["data"]["totp"] is not None,
+            data["notes"],
+            [item["uri"] for item in data["data"]["uris"]],
+        )
 
-            if data["data"] is None or "password" not in data["data"]:
-                print("rofi-rbw only supports logins")
-                return Credentials(
-                    entry.name,
-                    data["folder"],
-                    entry.username,
-                    notes=data["notes"],
-                    fields=[Field(item["name"], item["value"], FieldType(item["type"])) for item in data["fields"]],
-                )
+    def __fetch_card(self, entry: Entry) -> Card:
+        data = self.__load_from_rbw(entry.name, entry.username, entry.folder)
 
-            return Credentials(
-                entry.name,
-                data["folder"],
-                entry.username,
-                data["data"]["password"] or "",
-                data["data"]["totp"] is not None,
-                data["notes"],
-                [item["uri"] for item in data["data"]["uris"]],
-                fields=[Field(item["name"], item["value"], FieldType(item["type"])) for item in data["fields"]],
-            )
+        return Card(
+            entry.name,
+            entry.folder,
+            [Field(item["name"], item["value"], FieldType(item["type"])) for item in data["fields"] if item["name"]],
+            data["data"]["cardholder_name"],
+            data["data"]["number"],
+            data["data"]["brand"],
+            data["data"]["exp_month"],
+            data["data"]["exp_year"],
+            data["data"]["code"],
+            data["notes"],
+        )
 
-        except JSONDecodeError as exception:
-            print(f"Could not parse the output: {exception.msg}")
-            exit(12)
+    def __fetch_note(self, entry: Entry) -> Note:
+        data = self.__load_from_rbw(entry.name, entry.username, entry.folder)
 
-    def __load_from_rbw(self, name: str, username: str, folder: Optional[str]) -> str:
+        return Note(
+            entry.name,
+            entry.folder,
+            [Field(item["name"], item["value"], FieldType(item["type"])) for item in data["fields"] if item["name"]],
+            data["notes"],
+        )
+
+    def __load_from_rbw(self, name: str, username: str, folder: str | None) -> dict[str, Any]:
         command = ["rbw", "get", "--raw", name]
         if username:
             command.append(username)
@@ -66,7 +91,14 @@ class Rbw:
         if folder:
             command.extend(["--folder", folder])
 
-        return run(command, capture_output=True, encoding="utf-8").stdout
+        data = run(command, capture_output=True, encoding="utf-8").stdout
+
+        try:
+            return json.loads(data.strip())
+
+        except JSONDecodeError as exception:
+            print(f"Could not parse the output: {exception.msg}")
+            exit(12)
 
     def sync(self):
         run(["rbw", "sync"])

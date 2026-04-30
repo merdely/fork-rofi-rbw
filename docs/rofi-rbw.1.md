@@ -1,6 +1,6 @@
-% ROFI-RBW(1) Version 1.4.2 | Rofi Third-party Add-on Documentation
+% ROFI-RBW(1) Version 1.6.1 | Rofi Third-party Add-on Documentation
 % Fabian Winter
-% May 05, 2024
+% March 07, 2026
 
 # NAME
 
@@ -40,9 +40,11 @@ Type, copy or print your credentials from Bitwarden using rofi.
 
 \--target, -t
 
-: Possible values: username, password, totp, notes, _CUSTOM FIELD NAME_
+: Possible values: username, password, totp, notes, number, cardholder, brand, expiry, code, _CUSTOM FIELD NAME_, menu
 
       Choose which component of the selected entry to type/copy/print. Can be passed multiple times to use multiple targets.
+      Not all entries have all fields.
+      `menu` is a special value to open the target menu.
 
 \--prompt _PROMPT_, -r _PROMPT_
 
@@ -53,7 +55,8 @@ Type, copy or print your credentials from Bitwarden using rofi.
 : Format: <shortcut>:<action>:<target>.
 
       Define your own keybindings. Multiple keybindings can be concatenated with `,`; multiple targets for one shortcut can be concatenated with `:`.
-      This feature is only available in supported \"selectors\".
+      The pattern is `<shortcut>:<action>:<target>`, where `shortcut` is your desired keybinding, `action` is one of `--action`, `target` is one of `--target`.
+      This feature is only available in supported \"selectors\" (currently only rofi).
 
 \--menu-keybindings _KEYBINDINGS_
 

@@ -1,20 +1,25 @@
 import re
 from abc import ABC, abstractmethod
-from typing import Dict, List, Tuple, Union
 
-from rofi_rbw.credentials import Credentials
-from rofi_rbw.entry import Entry
-from rofi_rbw.models import Action, Target
+from ..models.action import Action
+from ..models.card import Card
+from ..models.credentials import Credentials
+from ..models.detailed_entry import DetailedEntry
+from ..models.entry import Entry
+from ..models.keybinding import Keybinding
+from ..models.note import Note
+from ..models.targets import Target
 
 
 class Selector(ABC):
     @staticmethod
-    def best_option(name: str = None) -> "Selector":
+    def best_option(name: str | None = None) -> "Selector":
         from .bemenu import Bemenu
+        from .fuzzel import Fuzzel
         from .rofi import Rofi
         from .wofi import Wofi
 
-        available_selectors = [Rofi, Wofi, Bemenu]
+        available_selectors = [Rofi, Wofi, Fuzzel, Bemenu]
 
         if name is not None:
             try:
@@ -40,31 +45,59 @@ class Selector(ABC):
     @abstractmethod
     def show_selection(
         self,
-        entries: List[Entry],
+        entries: list[Entry],
         prompt: str,
         show_help_message: bool,
         show_folders: bool,
-        keybindings: Dict[str, Tuple[Action, List[Target]]],
-        additional_args: List[str],
-    ) -> Tuple[Union[List[Target], None], Union[Action, None], Union[Entry, None]]:
+        keybindings: list[Keybinding],
+        additional_args: list[str],
+    ) -> tuple[list[Target] | None, Action | None, Entry | None]:
         pass
 
     @abstractmethod
     def select_target(
         self,
-        credentials: Credentials,
+        entry: DetailedEntry,
         show_help_message: bool,
-        keybindings: Dict[str, Action],
-        additional_args: List[str],
-    ) -> Tuple[Union[List[Target], None], Union[Action, None]]:
+        keybindings: dict[str, Action],
+        additional_args: list[str],
+    ) -> tuple[list[Target] | None, Action | None]:
         pass
 
-    def _format_targets_from_credential(self, credentials: Credentials) -> List[str]:
+    def _format_entries(self, entries: list[Entry], show_folders: bool) -> list[str]:
+        max_width = self._calculate_max_width(entries, show_folders)
+        return [
+            f"{self._format_folder(it, show_folders)}{it.name}{self.justify(it, max_width, show_folders)}  {it.username}"
+            for it in entries
+        ]
+
+    @staticmethod
+    def _find_entry(entries: list[Entry], formatted_string: str) -> Entry:
+        match = re.compile("(?:(?P<folder>.+)/)?(?P<name>.*?) {2,}(?P<username>.*)").search(formatted_string)
+
+        return next(
+            entry
+            for entry in entries
+            if entry.name == match.group("name")
+            and (match.group("folder") is None or entry.folder == match.group("folder"))
+            and (match.group("username") is None or entry.username == match.group("username").strip())
+        )
+
+    def _format_targets_from_entry(self, entry: DetailedEntry) -> list[str]:
+        if isinstance(entry, Credentials):
+            return self._format_targets_from_credential(entry)
+        elif isinstance(entry, Card):
+            return self._format_targets_from_card(entry)
+        elif isinstance(entry, Note):
+            return self._format_targets_from_note(entry)
+        return []
+
+    def _format_targets_from_credential(self, credentials: Credentials) -> list[str]:
         targets = []
         if credentials.username:
             targets.append(f"Username: {credentials.username}")
         if credentials.password:
-            targets.append(f'Password: {credentials.password[0]}{"*" * (len(credentials.password) - 1)}')
+            targets.append(f"Password: {credentials.password[0]}{'*' * (len(credentials.password) - 1)}")
         if credentials.has_totp:
             targets.append(f"TOTP: {credentials.totp}")
         if credentials.notes:
@@ -79,17 +112,46 @@ class Selector(ABC):
 
         return targets
 
+    def _format_targets_from_card(self, card: Card) -> list[str]:
+        targets = []
+        if card.number:
+            targets.append(f"Number: {card.number}")
+        if card.cardholder_name:
+            targets.append(f"Cardholder: {card.cardholder_name}")
+        if card.brand:
+            targets.append(f"Brand: {card.brand}")
+        if card.exp_month and card.exp_year:
+            targets.append(f"Expiry: {card.exp_year:0>4}-{card.exp_month:0>2}")
+        if card.code:
+            targets.append(f"Code: {card.code[0]}{'*' * (len(card.code) - 1)}")
+        if card.notes:
+            targets.append(f"Notes: {card.notes}")
+        for field in card.fields:
+            targets.append(f"{self._format_further_item_name(field.key)}: {field.masked_string()}")
+
+        return targets
+
+    def _format_targets_from_note(self, note: Note) -> list[str]:
+        targets = []
+        if note.notes:
+            value = note.notes.replace("\n", "|")
+            targets.append(f"Notes: {value}")
+        for field in note.fields:
+            targets.append(f"{self._format_further_item_name(field.key)}: {field.masked_string()}")
+
+        return targets
+
     def _format_further_item_name(self, key: str) -> str:
         if key.lower() in ["username", "password", "totp"] or re.match(r"^URI \d+$", key):
             return f"{key} (field)"
         return key
 
     @staticmethod
-    def _extract_targets(output: str) -> List[Target]:
+    def _extract_targets(output: str) -> list[Target]:
         return [Target(line.split(":")[0]) for line in output.strip().split("\n")]
 
     @staticmethod
-    def _calculate_max_width(entries: List[Entry], show_folders: bool) -> int:
+    def _calculate_max_width(entries: list[Entry], show_folders: bool) -> int:
         if show_folders:
             return max(len(it.name) + len(it.folder) + 1 for it in entries)
         else:
@@ -105,9 +167,8 @@ class Selector(ABC):
     def justify(entry: Entry, max_width: int, show_folders: bool) -> str:
         whitespace_length = max_width - len(entry.name)
         if show_folders:
-            whitespace_length -= len(entry.folder)
             if entry.folder:
-                whitespace_length -= 1
+                whitespace_length -= len(entry.folder) + 1
         return " " * whitespace_length
 
 

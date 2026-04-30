@@ -1,12 +1,13 @@
-from subprocess import run
 import time
-from typing import List, Tuple, Union
+from subprocess import run
 
 from .argument_parsing import parse_arguments
 from .cache import Cache
 from .clipboarder.clipboarder import Clipboarder
-from .credentials import Credentials
-from .models import Action, Target, Targets, TypeTargets
+from .models.action import Action
+from .models.credentials import Credentials
+from .models.detailed_entry import DetailedEntry
+from .models.targets import Target, Targets, TypeTargets
 from .rbw import Rbw
 from .selector.selector import Selector
 from .typer.typer import Key, Typer
@@ -51,10 +52,10 @@ class RofiRbw(object):
         if selected_action == Action.CANCEL:
             return
 
-        credential = self.rbw.fetch_credentials(selected_entry)
+        entry = self.rbw.fetch_credentials(selected_entry)
 
         if self.args.use_cache:
-            cache.update(credential)
+            cache.update(selected_entry)
 
         if selected_targets is not None:
             self.args.targets = selected_targets
@@ -64,20 +65,18 @@ class RofiRbw(object):
 
         if self.args.targets is not None and Targets.MENU in self.args.targets:
             targets, action = self.__show_target_menu(
-                credential,
+                entry,
                 self.args.show_help,
             )
             self.args.targets = targets
             if action is not None:
                 self.args.action = action
 
-        self.__execute_action(credential)
+        self.__execute_action(entry)
 
-    def __show_target_menu(
-        self, cred: Credentials, show_help_message: bool
-    ) -> Tuple[List[Target], Union[Action, None]]:
+    def __show_target_menu(self, entry: DetailedEntry, show_help_message: bool) -> tuple[list[Target], Action | None]:
         targets, action = self.selector.select_target(
-            cred, show_help_message, self.args.parsed_menu_keybindings, additional_args=self.args.selector_args
+            entry, show_help_message, self.args.parsed_menu_keybindings, additional_args=self.args.selector_args
         )
 
         if action == Action.CANCEL:
@@ -86,31 +85,28 @@ class RofiRbw(object):
 
         return targets, action
 
-    def __execute_action(self, cred: Credentials) -> None:
-        targets = self.__configure_targets(cred)
+    def __execute_action(self, detailed_entry: DetailedEntry) -> None:
+        targets = self.__configure_targets(detailed_entry)
         if self.args.action == Action.TYPE:
-            self.__type_targets(cred, targets)
+            self.__type_targets(detailed_entry, targets)
         elif self.args.action == Action.COPY:
             for target in targets:
-                self.clipboarder.copy_to_clipboard(cred[target])
+                self.clipboarder.copy_to_clipboard(detailed_entry[target])
             if len(targets) == 1 and targets[0] == Targets.PASSWORD:
                 self.clipboarder.clear_clipboard_after(self.args.clear)
         elif self.args.action == Action.PRINT:
-            print("\n".join([cred[target] for target in targets]))
+            print("\n".join([detailed_entry[target] for target in targets]))
 
-    def __configure_targets(self, cred: Credentials) -> List[Target]:
+    def __configure_targets(self, detailed_entry: DetailedEntry) -> list[Target]:
         if self.args.targets:
             return self.args.targets
 
         if self.args.action == Action.TYPE:
-            if cred.autotype_sequence is not None:
-                return cred.autotype_sequence
-            else:
-                return [Targets.USERNAME, TypeTargets.TAB, Targets.PASSWORD]
+            return detailed_entry.autotype_sequence or detailed_entry.default_autotype_target
 
-        return [Targets.USERNAME, Targets.PASSWORD]
+        return detailed_entry.default_target
 
-    def __type_targets(self, cred: Credentials, targets: List[Target]):
+    def __type_targets(self, detailed_entry: DetailedEntry, targets: list[Target]):
         for target in targets:
             if target == TypeTargets.DELAY:
                 time.sleep(1)
@@ -119,8 +115,10 @@ class RofiRbw(object):
             elif target == TypeTargets.TAB:
                 self.typer.press_key(Key.TAB)
             else:
-                self.typer.type_characters(cred[target], self.args.key_delay, self.active_window)
-        if Targets.PASSWORD in targets and cred.totp != "":
-            self.clipboarder.copy_to_clipboard(cred.totp)
+                self.typer.type_characters(
+                    detailed_entry[target], self.args.start_delay, self.args.key_delay, self.active_window
+                )
+        if Targets.PASSWORD in targets and isinstance(detailed_entry, Credentials) and detailed_entry.totp != "":
+            self.clipboarder.copy_to_clipboard(detailed_entry.totp)
             if self.args.use_notify_send:
                 run(["notify-send", "-u", "normal", "-t", "3000", "rofi-rbw", "totp copied to clipboard"], check=True)

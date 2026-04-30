@@ -1,6 +1,32 @@
-# [NEXT]
+# [1.6.1] - 2026-03-07
+## Fixed
+- Fix selection of entries without folders or username. (#125)
+- Fix Wayland detection. (#127)
+
+# [1.6.0] - 2026-02-01
+## Changed
+- Stopped support for Python 3.9.
+
+## Fixed
+- Passwords starting with `-` can be typed.
+
+## Added
+- Notes are supported. (#114)
+- There can be a delay before typing.
+
+# [1.5.1] - 2025-05-11
+## Fixed
+- The build process builds a wheel file with `rofi-rbw` again. (#112)
+
+# [1.5.0] - 2025-05-10
 ## Changed
 - Fields are shown in plain text or hidden based on their type. (#17)
+- Stopped support for Python 3.8.
+
+## Added
+- Show a notification after copying TOTP. (#101)
+- Support for fuzzel. (#109)
+- Support cards.
 
 # [1.4.2] - 2024-05-05
 ## Fixed

@@ -1,11 +1,12 @@
 import re
 from subprocess import run
-from typing import Dict, List, Tuple, Union
 
-from ..abstractionhelper import is_installed, is_wayland
-from ..credentials import Credentials
-from ..entry import Entry
-from ..models import Action, Keybinding, Target, Targets
+from ..abstractionhelper import is_installed
+from ..models.action import Action
+from ..models.detailed_entry import DetailedEntry
+from ..models.entry import Entry
+from ..models.keybinding import Keybinding
+from ..models.targets import Target, Targets
 from .selector import Selector
 
 
@@ -20,13 +21,13 @@ class Rofi(Selector):
 
     def show_selection(
         self,
-        entries: List[Entry],
+        entries: list[Entry],
         prompt: str,
         show_help_message: bool,
         show_folders: bool,
-        keybindings: List[Keybinding],
-        additional_args: List[str],
-    ) -> Tuple[Union[List[Target], None], Union[Action, None], Union[Entry, None]]:
+        keybindings: list[Keybinding],
+        additional_args: list[str],
+    ) -> tuple[list[Target] | None, Action | None, Entry | None]:
         parameters = [
             "rofi",
             "-markup-rows",
@@ -59,27 +60,33 @@ class Rofi(Selector):
             return_action = None
             return_targets = None
 
-        return return_targets, return_action, self.__parse_formatted_string(rofi.stdout)
+        return return_targets, return_action, self.__find_entry(entries, rofi.stdout)
 
-    def __format_entries(self, entries: List[Entry], show_folders: bool) -> List[str]:
+    def __format_entries(self, entries: list[Entry], show_folders: bool) -> list[str]:
         max_width = self._calculate_max_width(entries, show_folders)
         return [
             f"{self._format_folder(it, show_folders)}<b>{it.name}</b>{self.justify(it, max_width, show_folders)}  {it.username}"
             for it in entries
         ]
 
-    def __parse_formatted_string(self, formatted_string: str) -> Entry:
-        match = re.compile("(?:(?P<folder>.+)/)?<b>(?P<name>.*?) *</b>(?P<username>.*)").search(formatted_string)
+    def __find_entry(self, entries: list[Entry], formatted_string: str) -> Entry:
+        match = re.compile("(?:(?P<folder>.+)/)?<b>(?P<name>.*?)</b> {2,}(?P<username>.*)").search(formatted_string)
 
-        return Entry(match.group("name"), match.group("folder"), match.group("username").strip())
+        return next(
+            entry
+            for entry in entries
+            if entry.name == match.group("name")
+            and (match.group("folder") is None or entry.folder == match.group("folder"))
+            and (match.group("username") is None or entry.username == match.group("username").strip())
+        )
 
     def select_target(
         self,
-        credentials: Credentials,
+        entry: DetailedEntry,
         show_help_message: bool,
-        keybindings: List[Keybinding],
-        additional_args: List[str],
-    ) -> Tuple[Union[List[Target], None], Union[Action, None]]:
+        keybindings: list[Keybinding],
+        additional_args: list[str],
+    ) -> tuple[list[Target] | None, Action | None]:
         parameters = [
             "rofi",
             "-markup-rows",
@@ -96,7 +103,7 @@ class Rofi(Selector):
 
         rofi = run(
             parameters,
-            input="\n".join(self._format_targets_from_credential(credentials)),
+            input="\n".join(self._format_targets_from_entry(entry)),
             capture_output=True,
             encoding="utf-8",
         )
@@ -110,14 +117,14 @@ class Rofi(Selector):
 
         return (self._extract_targets(rofi.stdout)), action
 
-    def __build_parameters_for_keybindings(self, keybindings: List[Keybinding]) -> List[str]:
+    def __build_parameters_for_keybindings(self, keybindings: list[Keybinding]) -> list[str]:
         params = []
         for index, keybinding in enumerate(keybindings):
             params.extend([f"-kb-custom-{1 + index}", keybinding.shortcut])
 
         return params
 
-    def __format_keybindings_message(self, keybindings: List[Keybinding]):
+    def __format_keybindings_message(self, keybindings: list[Keybinding]):
         return [
             "-mesg",
             " | ".join(
